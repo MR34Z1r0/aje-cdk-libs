@@ -17,6 +17,7 @@ setup(
     install_requires=[
         # Lista tus dependencias aquí, por ejemplo:
         "aws-cdk-lib>=2.0.0",
+        "python-dotenv"
     ],
     python_requires=">=3.10",
     classifiers=[
