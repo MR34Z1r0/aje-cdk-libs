@@ -30,7 +30,18 @@ class LambdaConfig:
     log_retention: Optional[logs.RetentionDays] = logs.RetentionDays.ONE_WEEK
     removal_policy: Optional[RemovalPolicy] = RemovalPolicy.DESTROY
     role: Optional[iam.Role] = None
- 
+
+@dataclass
+class LambdaDockerConfig:
+    """Configuration for Lambda function creation"""
+    function_name: str
+    code: _lambda.DockerImageCode
+    memory_size: Optional[int] = 1024
+    timeout: Optional[Duration] = Duration.seconds(60)
+    environment: Optional[Dict[str, str]] = None
+    removal_policy: Optional[RemovalPolicy] = RemovalPolicy.DESTROY
+    role: Optional[iam.Role] = None
+     
 @dataclass
 class DynamoDBConfig:
     """Configuration for DynamoDB table creation"""
@@ -78,6 +89,7 @@ class S3Config:
     versioned: bool = False
     removal_policy: Optional[RemovalPolicy] = None
     block_public_access: Optional[s3.BlockPublicAccess]= s3.BlockPublicAccess.BLOCK_ALL   
+    
 #############################################################    
 @dataclass
 class ApiGatewayConfig:

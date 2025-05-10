@@ -45,6 +45,21 @@ class ResourceBuilder:
         )        
         self.tag_resource(fn, function_name, "AWS Lambda")        
         return fn
+    
+    def build_lambda_docker_function(self, config: LambdaDockerConfig) -> _lambda.DockerImageFunction:
+        """Create a Lambda function with standardized configuration"""
+        function_name = self.name_builder.build(Services.LAMBDA_FUNCTION, config.function_name)        
+        fn = _lambda.DockerImageFunction(  
+            self.stack, function_name,
+            function_name=function_name,
+            code=config.code,
+            memory_size=config.memory_size,
+            environment=config.environment,
+            timeout=config.timeout,
+            role=config.role
+        )
+        self.tag_resource(fn, function_name, "AWS Lambda")        
+        return fn
         
     # DynamoDB Resources
     def build_dynamodb_table(self, config: DynamoDBConfig) -> dynamodb.Table:
