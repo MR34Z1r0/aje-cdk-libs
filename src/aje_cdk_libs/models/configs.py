@@ -13,7 +13,9 @@ from aws_cdk import (
     aws_sns as sns,
     aws_apigateway as apigw,
     aws_logs as logs,
-    aws_sqs as sqs
+    aws_sqs as sqs,
+    aws_glue_alpha as glue,
+    aws_s3_deployment as s3_deployment
 )
     
 @dataclass
@@ -89,6 +91,47 @@ class S3Config:
     versioned: bool = False
     removal_policy: Optional[RemovalPolicy] = None
     block_public_access: Optional[s3.BlockPublicAccess]= s3.BlockPublicAccess.BLOCK_ALL   
+
+@dataclass
+class SNSTopicConfig:
+    """Configuration for SNS topic creation"""
+    topic_name: str
+    removal_policy: Optional[RemovalPolicy] = None
+
+@dataclass
+class SecretConfig:
+    """Configuration for Secret creation"""
+    secret_name: str
+    secret_value: str
+
+@dataclass
+class S3DeploymentConfig:
+    """Configuration for S3 bucket deployment"""
+    name: str
+    sources: List[s3_deployment.Source]
+    destination_bucket: s3.Bucket
+    destination_key_prefix: str
+
+@dataclass
+class GlueJobConfig:
+    """Configuration for Glue job creation"""
+    job_name: str
+    executable: glue.JobExecutable
+    connections: Optional[List[glue.Connection]] = None
+    default_arguments: Optional[Dict[str, str]] = None
+    worker_type: Optional[glue.WorkerType] = None
+    worker_count: Optional[int] = None
+    continuous_logging: Optional[glue.ContinuousLoggingProps] = None
+    timeout: Optional[Duration] = None
+    max_concurrent_runs: Optional[int] = None
+    role: Optional[iam.Role] = None
+
+@dataclass
+class StepFunctionConfig:
+    """Configuration for Step Functions state machine creation"""
+    name: str
+    definition: Dict[str, str]
+    timeout: int = 60
     
 #############################################################    
 @dataclass
@@ -120,19 +163,6 @@ class ApiGatewayStageConfig:
     data_trace_enabled: bool = False
 
 @dataclass
-class GlueJobConfig:
-    """Configuration for Glue job creation"""
-    name: str
-    script_path: str
-    artifacts_bucket: s3.Bucket
-    role: iam.Role
-    environment: Dict[str, str]
-    worker_type: str = "G.1X"
-    worker_count: int = 2
-    timeout: int = 1
-    glue_version: str = "4.0"
-
-@dataclass
 class DMSEndpointConfig:
     """Configuration for DMS endpoint creation"""
     name: str
@@ -146,21 +176,6 @@ class DMSEndpointConfig:
     kms_settings: Dict[str, str]
     tags: Optional[Dict[str, str]] = None
 
-@dataclass
-class StepFunctionConfig:
-    """Configuration for Step Functions state machine creation"""
-    name: str
-    definition: Dict[str, str]
-    timeout: int = 60
 
-@dataclass
-class SNSTopicConfig:
-    """Configuration for SNS topic creation"""
-    name: str
-    display_name: str
-    master_key: str
-    topic_name: str
-    delivery_policy: str
-    subscriptions: List[str]
-    tags: Optional[Dict[str, str]] = None
+
     

@@ -3,14 +3,15 @@ from aws_cdk import (
     aws_iam as iam,
     aws_s3 as s3,
     aws_secretsmanager as secretsmanager,
-    aws_glue as glue,
+    aws_glue_alpha as glue,
     aws_dynamodb as dynamodb,
     aws_dms as dms,
     aws_lambda as _lambda,
     aws_stepfunctions as sf,
     aws_sns as sns,
     aws_apigateway as apigw,
-    aws_sqs as sqs
+    aws_sqs as sqs,
+    aws_s3_deployment as s3_deployment
 )
 from ..constants.services import Services
 from ..constants.policies import PolicyUtils
@@ -26,8 +27,7 @@ class ResourceBuilder:
         self.stack = stack 
         self.project_config = project_config 
         self.name_builder = NameBuilder(self.project_config)
-        
-    # Lambda Resources
+    
     def build_lambda_function(self, config: LambdaConfig) -> _lambda.Function:
         """Create a Lambda function with standardized configuration"""
         function_name = self.name_builder.build(Services.LAMBDA_FUNCTION, config.function_name)        
@@ -60,8 +60,7 @@ class ResourceBuilder:
         )
         self.tag_resource(fn, function_name, "AWS Lambda")        
         return fn
-        
-    # DynamoDB Resources
+    
     def build_dynamodb_table(self, config: DynamoDBConfig) -> dynamodb.Table:
         """Create a DynamoDB table with standard configuration"""
         table_name = self.name_builder.build(Services.DYNAMODB_TABLE, config.table_name)
@@ -101,7 +100,18 @@ class ResourceBuilder:
         return secretsmanager.Secret.from_secret_name_v2(
             self.stack, secret_name, secret_name
         )
-        
+
+    def build_secret(self, config: SecretConfig) -> secretsmanager.Secret:
+        """Create a new secret with standard configuration"""
+        secret_name = self.name_builder.build(Services.SECRET, config.secret_name)
+        secret = secretsmanager.Secret(
+            self.stack, secret_name,
+            secret_name=secret_name,
+            secret_string_value=config.secret_value
+        )
+        self.tag_resource(secret, secret_name, "AWS Secrets Manager")
+        return secret
+    
     def import_dynamodb_table(self, table_name: str) -> dynamodb.Table:
         """Import an existing DynamoDB table"""
         return dynamodb.Table.from_table_name(
@@ -143,19 +153,6 @@ class ResourceBuilder:
         self.tag_resource(queue, queue_name, "AWS SQS")
         return queue
 
-    ##################################################################
-    # Secrets Manager Resources
-    def build_secret(self, secret_name: str, secret_value: str) -> secretsmanager.Secret:
-        """Create a new secret with standard configuration"""
-        secret_name = self.name_builder.build(Services.SECRET, secret_name)
-        secret = secretsmanager.Secret(
-            self.stack, secret_name,
-            secret_name=secret_name,
-            secret_string_value=SecretValue.unsafe_plain_text(secret_value)
-        )
-        self.tag_resource(secret, secret_name, "AWS Secrets Manager")
-        return secret
-    # S3 Resources
     def build_s3_bucket(self, config: S3Config) -> s3.Bucket:
         """Create a new S3 bucket with standard configuration"""
         bucket_name = self.name_builder.build(Services.S3_BUCKET, config.bucket_name)
@@ -169,13 +166,84 @@ class ResourceBuilder:
         self.tag_resource(bucket, bucket_name, "AWS S3")
         return bucket
     
-    def import_s3_bucket(self, config: S3Config) -> s3.Bucket:
+    def import_s3_bucket(self, bucket_name: str) -> s3.Bucket:
         """Import an existing S3 bucket"""
-        bucket_name = self.name_builder.build(Services.S3_BUCKET, config.bucket_name)
         return s3.Bucket.from_bucket_name(
             self.stack, bucket_name, bucket_name
         )
     
+    def build_sns_topic(self, config: SNSTopicConfig) -> sns.Topic:
+        """Create a SNS topic with standard configuration"""
+        topic_name = self.name_builder.build(Services.SNS_TOPIC, config.topic_name)
+        
+        topic = sns.Topic(
+            self.stack, topic_name,
+            topic_name=topic_name
+        )
+        
+        self.tag_resource(topic, topic_name, "AWS SNS")
+        return topic
+    
+    def import_sns_topic(self, topic_name: str) -> sns.Topic:
+        """Import an existing SNS topic"""        
+        return sns.Topic.from_topic_arn(
+            self.stack, topic_name, f"arn:aws:sns:{self.stack.region}:{self.stack.account}:{topic_name}"
+        )   
+    
+    def build_glue_job(self, config: GlueJobConfig) -> glue.Job:
+        """Create a Glue ETL job with standard configuration"""
+        job_name = self.name_builder.build(Services.GLUE_JOB, config.job_name)
+        
+        job = glue.Job(
+            self.stack, job_name,
+            job_name=job_name,
+            executable=config.executable,
+            connections=config.connections,
+            default_arguments=config.default_arguments,
+            worker_type=config.worker_type,
+            worker_count=config.worker_count,
+            continuous_logging=config.continuous_logging,
+            timeout=config.timeout,
+            max_concurrent_runs=config.max_concurrent_runs,
+            role=config.role
+        )
+        
+        self.tag_resource(job, job_name, "AWS Glue")
+        return job
+    
+    def import_glue_job(self, job_name: str) -> glue.Job:
+        """Import an existing Glue job"""
+        job = glue.Job.from_job_name(
+            self.stack, job_name, job_name
+        )
+    
+    def build_step_function(self, config: StepFunctionConfig) -> sf.StateMachine:
+        """Create a Step Functions state machine with standard configuration"""
+        state_machine_name = self.name_builder.build(Services.STEP_FUNCTION, config.name)
+        
+        state_machine = sf.StateMachine(
+            self.stack, state_machine_name,
+            state_machine_name=state_machine_name,
+            definition=config.definition,
+            timeout=Duration.minutes(config.timeout)
+        )
+        
+        self.tag_resource(state_machine, state_machine_name, "AWS Step Functions")
+        return state_machine
+    
+    def deploy_s3_bucket(self, config: S3DeploymentConfig) -> s3_deployment.BucketDeployment:
+        """Create a new S3 bucket with standard configuration"""
+        bucket_deployment = s3_deployment.BucketDeployment(
+            self.stack, config.name,
+            sources=config.sources,
+            destination_bucket=config.destination_bucket,
+            destination_key_prefix=config.destination_key_prefix
+        )
+        
+        return bucket_deployment
+    
+    ##################################################################
+     
     def import_api_gateway(self, config: ApiGatewayConfig) -> apigw.RestApi:
         """Import an existing API Gateway"""
         api_name = self.name_builder.build(Services.API_GATEWAY, config.name)
@@ -183,7 +251,6 @@ class ResourceBuilder:
             self.stack, api_name, api_name
         )
 
-    # API Gateway Resources    
     def build_api_gateway(self, config: ApiGatewayConfig) -> apigw.RestApi:
         """Create a new API Gateway with standard configuration"""
         api_name = self.name_builder.build(Services.API_GATEWAY, config.name)
@@ -225,38 +292,6 @@ class ResourceBuilder:
         self.tag_resource(stage, config.stage_name, "AWS API Gateway")
         return stage
 
-    # Glue Resources
-    def build_glue_job(self, config: GlueJobConfig) -> glue.CfnJob:
-        """Create a Glue ETL job with standard configuration"""
-        glue_job_name = self.name_builder.build(Services.GLUE_JOB, config.name)
-        
-        job = glue.CfnJob(
-            self.stack, glue_job_name,
-            name=glue_job_name,
-            command=glue.CfnJob.JobCommandProperty(
-                name="glueetl",
-                python_version="3",
-                script_location=f"s3://{config.artifacts_bucket.bucket_name}/{config.script_path}"
-            ),
-            default_arguments=config.environment,
-            glue_version=config.glue_version,
-            worker_type=config.worker_type,
-            number_of_workers=config.worker_count,
-            role=config.role.role_arn
-        )
-        
-        self.tag_resource(job, glue_job_name, "AWS Glue")
-        return job
-    
-    def import_glue_job(self, config: GlueJobConfig) -> glue.CfnJob:
-        """Import an existing Glue job"""
-        glue_job_name = self.name_builder.build(Services.GLUE_JOB, config.name)
-        
-        job = glue.CfnJob.from_job_name(
-            self.stack, glue_job_name, glue_job_name
-        )
-    
-    # DMS Resources
     def build_dms_endpoint(self, config: DMSEndpointConfig) -> dms.CfnEndpoint:
         """Create a DMS endpoint with standard configuration"""
         endpoint_name = self.name_builder.build(Services.DMS_ENDPOINT, config.name)
@@ -278,42 +313,3 @@ class ResourceBuilder:
         self.tag_resource(endpoint, endpoint_name, "AWS DMS")
         return endpoint
     
-    # Step Functions Resources
-    def build_step_function(self, config: StepFunctionConfig) -> sf.StateMachine:
-        """Create a Step Functions state machine with standard configuration"""
-        state_machine_name = self.name_builder.build(Services.STEP_FUNCTION, config.name)
-        
-        state_machine = sf.StateMachine(
-            self.stack, state_machine_name,
-            state_machine_name=state_machine_name,
-            definition=config.definition,
-            timeout=Duration.minutes(config.timeout)
-        )
-        
-        self.tag_resource(state_machine, state_machine_name, "AWS Step Functions")
-        return state_machine
-    
-    # SNS Resources
-    def build_sns_topic(self, config: SNSTopicConfig) -> sns.Topic:
-        """Create a SNS topic with standard configuration"""
-        topic_name = self.name_builder.build(Services.SNS_TOPIC, config.name)
-        
-        topic = sns.Topic(
-            self.stack, topic_name,
-            topic_name=topic_name,
-            display_name=config.display_name,
-            master_key=config.master_key, 
-            delivery_policy=config.delivery_policy,
-            subscriptions=config.subscriptions,
-            tags=config.tags
-        )
-        
-        self.tag_resource(topic, topic_name, "AWS SNS")
-        return topic
-    
-    def import_sns_topic(self, topic_name: str) -> sns.Topic:
-        """Import an existing SNS topic"""
-        internal_name = self.name_builder.build(Services.SNS_TOPIC, topic_name)
-        return sns.Topic.from_topic_arn(
-            self.stack, internal_name, f"arn:aws:sns:{self.stack.region}:{self.stack.account}:{topic_name}"
-        )   

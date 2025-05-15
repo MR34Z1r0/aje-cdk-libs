@@ -28,6 +28,17 @@ class NameBuilder:
                 descriptive_name,
                 service.value
             ]
+            name = self.project_config.separator.join(filter(None, components))
+            return self.__sanitize_name(name)
+        if service == Services.SECRET:
+            components = [
+                self.project_config.enterprise,
+                self.project_config.environment.value,
+                self.project_config.project_name,
+                descriptive_name
+            ]
+            name = "/".join(filter(None, components))
+            return self.__sanitize_name(name)
         else:
             components = [
                 self.project_config.enterprise,
@@ -35,9 +46,10 @@ class NameBuilder:
                 self.project_config.project_name,
                 descriptive_name,
                 service.value
-            ]     
-        name = self.project_config.separator.join(filter(None, components))
-        return self.__sanitize_name(name)
+            ]
+            name = self.project_config.separator.join(filter(None, components))
+            return self.__sanitize_name(name)  
+        
     
     def build_dms_endpoint_name(self, descriptive_name: str, engine: str, endpoint_type) -> str:
         """Specialized naming for DMS endpoints"""
