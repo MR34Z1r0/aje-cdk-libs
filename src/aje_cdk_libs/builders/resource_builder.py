@@ -242,6 +242,24 @@ class ResourceBuilder:
         
         return bucket_deployment
     
+
+    def build_role(self, config: RoleConfig) -> iam.Role:
+        """Create a new IAM role with standard configuration"""
+        role_name = self.name_builder.build(Services.ROLE, config.role_name)
+        
+        role = iam.Role(
+            self.stack, role_name,
+            role_name=role_name,
+            assumed_by=config.assumed_by,
+            managed_policies=config.managed_policies,
+            inline_policies=config.inline_policies,
+            permissions_boundary=config.permissions_boundary,
+            description=config.description,
+            max_session_duration=config.max_session_duration
+        )
+
+        return role
+    
     ##################################################################
      
     def import_api_gateway(self, config: ApiGatewayConfig) -> apigw.RestApi:

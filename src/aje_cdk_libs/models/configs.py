@@ -132,7 +132,18 @@ class StepFunctionConfig:
     name: str
     definition: Dict[str, str]
     timeout: int = 60
-    
+
+@dataclass
+class RoleConfig:
+    """Configuration for IAM role creation"""
+    role_name: str
+    assumed_by: iam.IPrincipal
+    managed_policies: Optional[List[iam.IManagedPolicy]] = None
+    inline_policies: Optional[Dict[str, iam.PolicyDocument]] = None
+    permissions_boundary: Optional[iam.IPolicy] = None
+    description: Optional[str] = None
+    max_session_duration: Optional[Duration] = None
+        
 #############################################################    
 @dataclass
 class ApiGatewayConfig:
