@@ -245,7 +245,7 @@ class ResourceBuilder:
 
     def build_role(self, config: RoleConfig) -> iam.Role:
         """Create a new IAM role with standard configuration"""
-        role_name = self.name_builder.build(Services.ROLE, config.role_name)
+        role_name = self.name_builder.build(Services.IAM_ROLE, config.role_name)
         
         role = iam.Role(
             self.stack, role_name,
