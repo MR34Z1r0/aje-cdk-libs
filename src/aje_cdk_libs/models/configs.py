@@ -127,6 +127,24 @@ class GlueJobConfig:
     role: Optional[iam.Role] = None
 
 @dataclass
+class GlueJobPythonShellConfig:
+    """Configuration for Glue job creation with Python shell"""
+    job_name: str
+    script: str
+    python_version: Optional[glue.PythonVersion] = glue.PythonVersion.THREE
+    glue_version: Optional[glue.GlueVersion] = glue.GlueVersion.V3_0
+    description: Optional[str] = None
+    max_capacity: Optional[float] = None
+    role: Optional[iam.Role] = None
+    continuous_logging: Optional[glue.ContinuousLoggingProps] = None
+    worker_type: Optional[glue.WorkerType] = None
+    max_concurrent_runs: Optional[int] = None
+    timeout: Optional[Duration] = Duration.hours(1)
+    number_of_workers: Optional[int] = 1
+    max_retries: Optional[int] = 0
+    arguments: Optional[Dict[str, str]] = None
+
+@dataclass
 class StepFunctionConfig:
     """Configuration for Step Functions state machine creation"""
     name: str
