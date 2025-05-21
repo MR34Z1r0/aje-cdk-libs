@@ -211,29 +211,29 @@ class ResourceBuilder:
         self.tag_resource(job, job_name, "AWS Glue")
         return job
     
-    def build_glue_job_shell(self, config: GlueJobPythonShellConfig) -> glue.PythonShellJob:
-        """Create a Glue ETL job with standard configuration"""
-        job_name = self.name_builder.build(Services.GLUE_JOB, config.job_name)
-        
-        job = glue.PythonShellJob(
-            self.stack, job_name,
-            job_name=job_name,
-            script=config.script,
-            python_version=config.python_version,
-            glue_version=config.glue_version,
-            description=config.description,
-            max_capacity=config.max_capacity,
-            role=config.role,
-            continuous_logging=config.continuous_logging,
-            worker_type=config.worker_type,
-            max_concurrent_runs=config.max_concurrent_runs,
-            timeout=config.timeout,
-            number_of_workers=config.number_of_workers,
-            max_retries=config.max_retries            
-        )
-        
-        self.tag_resource(job, job_name, "AWS Glue")
-        return job
+    #def build_glue_job_shell(self, config: GlueJobPythonShellConfig) -> glue.PythonShellJob:
+    #    """Create a Glue ETL job with standard configuration"""
+    #    job_name = self.name_builder.build(Services.GLUE_JOB, config.job_name)
+    #    
+    #    job = glue.PythonShellJob(
+    #        self.stack, job_name,
+    #        job_name=job_name,
+    #        script=config.script,
+    #        python_version=config.python_version,
+    #        glue_version=config.glue_version,
+    #        description=config.description,
+    #        max_capacity=config.max_capacity,
+    #        role=config.role,
+    #        continuous_logging=config.continuous_logging,
+    #        worker_type=config.worker_type,
+    #        max_concurrent_runs=config.max_concurrent_runs,
+    #        timeout=config.timeout,
+    #        number_of_workers=config.number_of_workers,
+    #        max_retries=config.max_retries            
+    #    )
+    #    
+    #    self.tag_resource(job, job_name, "AWS Glue")
+    #    return job
 
     def import_glue_job(self, job_name: str) -> glue.Job:
         """Import an existing Glue job"""
