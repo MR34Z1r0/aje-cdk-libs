@@ -111,6 +111,7 @@ class S3DeploymentConfig:
     sources: List[s3_deployment.Source]
     destination_bucket: s3.Bucket
     destination_key_prefix: str
+    prune: bool = False
 
 @dataclass
 class GlueJobConfig:
@@ -148,8 +149,9 @@ class GlueJobConfig:
 class StepFunctionConfig:
     """Configuration for Step Functions state machine creation"""
     name: str
-    definition: Dict[str, str]
-    timeout: int = 60
+    definition: Dict[str, str] = None
+    definition_body: Optional[sf.DefinitionBody] = None
+    timeout: Optional[Duration] = Duration.hours(1)
 
 @dataclass
 class RoleConfig:

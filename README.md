@@ -23,12 +23,12 @@ Biblioteca de utilidades para AWS CDK (Cloud Development Kit) que simplifica la 
 ## Instalación en Producción
 
 ```bash
-pip install cdk-aje-libs
+pip install aje-cdk-libs
 ```
 
 ## Instalación en Desarrollo
 ```bash
-cd cdk-aje-libs/
+cd aje-cdk-libs/
 pip install -e .
 ```
 

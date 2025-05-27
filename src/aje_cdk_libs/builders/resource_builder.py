@@ -249,7 +249,8 @@ class ResourceBuilder:
             self.stack, state_machine_name,
             state_machine_name=state_machine_name,
             definition=config.definition,
-            timeout=Duration.minutes(config.timeout)
+            definition_body=config.definition_body,
+            timeout=config.timeout
         )
         
         self.tag_resource(state_machine, state_machine_name, "AWS Step Functions")
@@ -261,7 +262,8 @@ class ResourceBuilder:
             self.stack, config.name,
             sources=config.sources,
             destination_bucket=config.destination_bucket,
-            destination_key_prefix=config.destination_key_prefix
+            destination_key_prefix=config.destination_key_prefix,
+            prune=config.prune
         )
         
         return bucket_deployment

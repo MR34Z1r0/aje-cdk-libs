@@ -28,9 +28,23 @@ class PolicyUtils:
         "s3:DeleteObject"
     ]
     
-    LOGS_PERMISSIONS = [
+    LOGS_WRITE = [
         "logs:CreateLogGroup",
         "logs:CreateLogStream",
         "logs:PutLogEvents"
+    ]
+
+    SNS_PUBLISH = [
+        "sns:Publish",
+        "sns:Subscribe",
+        "sns:Unsubscribe",
+        "sns:ListSubscriptionsByTopic"
+    ]
+
+    DYNAMODB_READ = [
+        "dynamodb:GetItem",
+        "dynamodb:Query",
+        "dynamodb:Scan",
+        "dynamodb:BatchGetItem"
     ]
     
