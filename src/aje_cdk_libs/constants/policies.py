@@ -10,6 +10,13 @@ class PolicyUtils:
         return list(unique_permissions)
     
     # Predefined permission sets
+
+    LAMBDA_INVOKE = [
+        "lambda:InvokeFunction",
+        "lambda:GetFunctionConfiguration",
+        "lambda:ListFunctions"
+    ]
+
     APPFLOW_READ_WRITE = [
         "appflow:TagResource",
         "appflow:DescribeFlow",
@@ -48,3 +55,21 @@ class PolicyUtils:
         "dynamodb:BatchGetItem"
     ]
     
+    GLUE_START_JOB = [
+        "glue:StartJobRun",
+        "glue:GetJobRun", 
+        "glue:GetJobRuns",
+        "glue:BatchStopJobRun"
+        ]
+    
+    CRAWLER_START_JOB = [
+        "glue:StartCrawler",
+        "glue:GetCrawler",
+        "glue:StopCrawler"
+        ]
+    
+    STEP_FUNCTIONS_START_EXECUTION = [
+        "states:StartExecution",
+        "states:StopExecution",
+        "states:DescribeExecution"
+        ]

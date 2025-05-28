@@ -250,6 +250,7 @@ class ResourceBuilder:
             state_machine_name=state_machine_name,
             definition=config.definition,
             definition_body=config.definition_body,
+            role=config.role,
             timeout=config.timeout
         )
         

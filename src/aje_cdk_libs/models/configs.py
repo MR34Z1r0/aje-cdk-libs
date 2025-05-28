@@ -151,6 +151,7 @@ class StepFunctionConfig:
     name: str
     definition: Dict[str, str] = None
     definition_body: Optional[sf.DefinitionBody] = None
+    role: Optional[iam.Role] = None
     timeout: Optional[Duration] = Duration.hours(1)
 
 @dataclass
