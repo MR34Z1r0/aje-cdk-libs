@@ -37,7 +37,7 @@ class ProjectConfig:
                 environment=aws_environment,
                 author=config.get("author"),
                 separator=config.get("separator"),
-                app_config=config.get("app_config")[environment.lower()]
+                app_config=config.get("app_config")[environment.lower()] if "app_config" in config and environment.lower() in config["app_config"] else {}
             )
         except KeyError as e:
             raise ValueError(f"Missing required config key: {e}")

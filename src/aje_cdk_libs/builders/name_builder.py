@@ -21,10 +21,10 @@ class NameBuilder:
         if service == Services.S3_BUCKET:
             components = [
                 self.project_config.enterprise,
-                self.project_config.account_id,
-                self.project_config.region_name,
                 self.project_config.environment.value,
                 self.project_config.project_name,
+                self.project_config.account_id,
+                self.project_config.region_name,
                 descriptive_name,
                 service.value
             ]

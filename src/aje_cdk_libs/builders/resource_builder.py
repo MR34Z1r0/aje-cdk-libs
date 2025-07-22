@@ -1,5 +1,5 @@
 from aws_cdk import (
-    Tags, Duration, SecretValue,
+    Tags, Duration, SecretValue, Aws,
     aws_iam as iam,
     aws_s3 as s3,
     aws_secretsmanager as secretsmanager,
@@ -86,14 +86,21 @@ class ResourceBuilder:
         self.tag_resource(table, table_name, "AWS DynamoDB")
         return table
             
-    def tag_resource(self, resource, name: str, service_name: str):
+    def tag_resource(self, resource, name: str, service_name: str, additional_tags=None):
         """Apply standard tagging to resources"""
+        # Apply mandatory tags
         Tags.of(resource).add("Enterprise", self.project_config.enterprise)
         Tags.of(resource).add("Project", self.project_config.project_name)
         Tags.of(resource).add("Environment", self.project_config.environment.value)
         Tags.of(resource).add("Name", name)
         Tags.of(resource).add("Service", service_name)
         Tags.of(resource).add("Owner", self.project_config.author)
+        
+        # Apply additional tags if provided and resource supports them
+        if additional_tags:
+            for key, value in additional_tags.items():
+                if value:  # Only add tags with non-empty values
+                    Tags.of(resource).add(key, value)
     
     def import_secret(self, secret_name: str) -> secretsmanager.Secret:
         """Import an existing secret"""
@@ -103,11 +110,19 @@ class ResourceBuilder:
 
     def build_secret(self, config: SecretConfig) -> secretsmanager.Secret:
         """Create a new secret with standard configuration"""
-        secret_name = self.name_builder.build(Services.SECRET, config.secret_name)
+        # Use the secret name directly without name transformation to match extract_data.py convention
+        secret_name = config.secret_name
+        
+        # Convert string secret value to SecretValue if needed
+        if isinstance(config.secret_value, str):
+            secret_value = SecretValue.unsafe_plain_text(config.secret_value)
+        else:
+            secret_value = config.secret_value
+            
         secret = secretsmanager.Secret(
-            self.stack, secret_name,
+            self.stack, secret_name.replace("/", "_").replace("-", "_"),  # CDK construct ID
             secret_name=secret_name,
-            secret_string_value=config.secret_value
+            secret_string_value=secret_value
         )
         self.tag_resource(secret, secret_name, "AWS Secrets Manager")
         return secret
@@ -193,9 +208,8 @@ class ResourceBuilder:
     def build_glue_job(self, config: GlueJobConfig) -> glue.Job:
         """Create a Glue ETL job with standard configuration"""
         job_name = self.name_builder.build(Services.GLUE_JOB, config.job_name)
-        
-        job = glue.Job(
-            self.stack, job_name,
+
+        job_kwargs = dict(
             job_name=job_name,
             executable=config.executable,
             connections=config.connections,
@@ -207,8 +221,17 @@ class ResourceBuilder:
             max_concurrent_runs=config.max_concurrent_runs,
             role=config.role
         )
+
+        # Only set max_capacity if present (for PythonShell jobs)
+        if getattr(config, 'max_capacity', None) is not None:
+            job_kwargs['max_capacity'] = config.max_capacity
+
+        job = glue.Job(self.stack, job_name, **job_kwargs)
         
-        self.tag_resource(job, job_name, "AWS Glue")
+        # Extract any additional tags from the config
+        additional_tags = getattr(config, 'tags', {}) if hasattr(config, 'tags') else {}
+        
+        self.tag_resource(job, job_name, "AWS Glue", additional_tags)
         return job
     
     #def build_glue_job_shell(self, config: GlueJobPythonShellConfig) -> glue.PythonShellJob:
@@ -245,6 +268,7 @@ class ResourceBuilder:
         """Create a Step Functions state machine with standard configuration"""
         state_machine_name = self.name_builder.build(Services.STEP_FUNCTION, config.name)
         
+        # Create the StateMachine - role must be provided if disable_auto_permissions is True
         state_machine = sf.StateMachine(
             self.stack, state_machine_name,
             state_machine_name=state_machine_name,
@@ -254,7 +278,18 @@ class ResourceBuilder:
             timeout=config.timeout
         )
         
-        self.tag_resource(state_machine, state_machine_name, "AWS Step Functions")
+        # If disable_auto_permissions is True and we have a role, 
+        # we prevent CDK from auto-granting additional permissions by ensuring 
+        # the role already has the necessary permissions
+        if config.disable_auto_permissions and config.role:
+            # The role should already have the necessary permissions
+            # This is just a marker that we don't want CDK to auto-grant
+            pass
+        
+        # Extract any additional tags from the config
+        additional_tags = getattr(config, 'tags', {}) if hasattr(config, 'tags') else {}
+        
+        self.tag_resource(state_machine, state_machine_name, "AWS Step Functions", additional_tags)
         return state_machine
     
     def deploy_s3_bucket(self, config: S3DeploymentConfig) -> s3_deployment.BucketDeployment:
@@ -286,7 +321,315 @@ class ResourceBuilder:
         )
 
         return role
+        
+    def build_extract_role(self, role_name: str, resources: Dict[str, List[str]], tags: Dict[str, str] = None) -> iam.Role:
+        """Create a specialized role for extract jobs with minimum required permissions"""
+        config = GlueRoleConfig(
+            role_name=role_name,
+            additional_policies=PolicyUtils.S3_FULL + PolicyUtils.DYNAMODB_WRITE + PolicyUtils.SNS_PUBLISH + PolicyUtils.SECRET_MANAGER_READ,
+            resource_arns=resources,
+            tags=tags,
+            description="Role for extract Glue jobs with minimum required permissions"
+        )
+        return self.build_glue_role(config)
     
+    def build_light_transform_role(self, role_name: str, resources: Dict[str, List[str]], tags: Dict[str, str] = None) -> iam.Role:
+        """Create a specialized role for light transform jobs with minimum required permissions"""
+        config = GlueRoleConfig(
+            role_name=role_name,
+            additional_policies=PolicyUtils.S3_FULL + PolicyUtils.DYNAMODB_WRITE + PolicyUtils.SNS_PUBLISH,
+            resource_arns=resources,
+            tags=tags,
+            description="Role for light transform Glue jobs with minimum required permissions"
+        )
+        return self.build_glue_role(config)
+    
+    def build_crawler_role(self, role_name: str, resources: Dict[str, List[str]], tags: Dict[str, str] = None) -> iam.Role:
+        """Create a specialized role for crawler jobs with minimum required permissions"""
+        config = GlueRoleConfig(
+            role_name=role_name,
+            additional_policies=PolicyUtils.S3_FULL + PolicyUtils.GLUE_CATALOG_FULL + PolicyUtils.GLUE_CRAWLER_EXECUTE + PolicyUtils.DYNAMODB_WRITE + PolicyUtils.SNS_PUBLISH + PolicyUtils.LAKE_FORMATION_FULL + PolicyUtils.IAM_PASS_ROLE,
+            resource_arns=resources,
+            tags=tags,
+            description="Role for crawler Glue jobs with full S3, Lake Formation, LF-Tag, and IAM PassRole permissions"
+        )
+        return self.build_glue_role(config)
+    
+    def build_step_function_role(self, role_name: str, resources: Dict[str, List[str]], tags: Dict[str, str] = None) -> iam.Role:
+        """Create a specialized role for Step Functions with minimum required permissions"""
+        # Create basic logging policy with scoped resources
+        logs_policy = iam.PolicyStatement(
+            effect=iam.Effect.ALLOW,
+            actions=PolicyUtils.LOGS_ADMIN,
+            resources=[
+                # Scope log resources to specific role-related log groups
+                f"arn:aws:logs:{Aws.REGION}:{Aws.ACCOUNT_ID}:log-group:/aws/states/{role_name}*:*",
+                f"arn:aws:logs:{Aws.REGION}:{Aws.ACCOUNT_ID}:log-group:/aws/vendedlogs/states/{role_name}*:*"
+            ]
+        )
+        
+        # Add EventBridge permissions for Step Functions managed rules
+        eventbridge_policy = iam.PolicyStatement(
+            effect=iam.Effect.ALLOW,
+            actions=PolicyUtils.EVENTBRIDGE_MANAGE,
+            resources=[
+                f"arn:aws:events:{Aws.REGION}:{Aws.ACCOUNT_ID}:rule/*"
+            ]
+        )
+        
+        # Create inline policy document
+        policy_doc = iam.PolicyDocument(
+            statements=[logs_policy, eventbridge_policy]
+        )
+        
+        # Add specific resource permissions for Glue jobs and SNS
+        if resources:
+            if 'glue' in resources and resources['glue']:
+                policy_doc.add_statements(
+                    iam.PolicyStatement(
+                        effect=iam.Effect.ALLOW,
+                        actions=PolicyUtils.GLUE_JOB_EXECUTE,
+                        resources=resources['glue']
+                    )
+                )
+            
+            if 'sns' in resources and resources['sns']:
+                policy_doc.add_statements(
+                    iam.PolicyStatement(
+                        effect=iam.Effect.ALLOW,
+                        actions=PolicyUtils.SNS_PUBLISH,
+                        resources=resources['sns']
+                    )
+                )
+                
+            if 'states' in resources and resources['states']:
+                policy_doc.add_statements(
+                    iam.PolicyStatement(
+                        effect=iam.Effect.ALLOW,
+                        actions=PolicyUtils.STEP_FUNCTIONS_EXECUTE,
+                        resources=resources['states']
+                    )
+                )
+                
+            if 'lambda' in resources and resources['lambda']:
+                policy_doc.add_statements(
+                    iam.PolicyStatement(
+                        effect=iam.Effect.ALLOW,
+                        actions=PolicyUtils.LAMBDA_INVOKE,
+                        resources=resources['lambda']
+                    )
+                )
+        
+        # Create role config
+        config = StepFunctionRoleConfig(
+            role_name=role_name,
+            inline_policies={
+                "StepFunctionMinimalPolicy": policy_doc
+            },
+            tags=tags,
+            description="Role for Step Functions with minimum required permissions"
+        )
+        
+        # Build the role
+        role_name_formatted = self.name_builder.build(Services.IAM_ROLE, config.role_name)
+        
+        role = iam.Role(
+            self.stack, role_name_formatted,
+            role_name=role_name_formatted,
+            assumed_by=config.assumed_by,
+            managed_policies=config.managed_policies,
+            inline_policies=config.inline_policies,
+            description=config.description
+        )
+        
+        # Apply tags if provided
+        if config.tags:
+            for key, value in config.tags.items():
+                if value:  # Only add non-empty tags
+                    Tags.of(role).add(key, value)
+                    
+        # Apply standard tags
+        self.tag_resource(role, role_name_formatted, "AWS IAM Role")
+        
+        return role
+    
+    def build_glue_connection(self, config: GlueConnectionConfig) -> glue.Connection:
+        """Create a Glue connection with standard configuration"""
+        from aws_cdk import aws_ec2 as ec2
+        
+        connection_name = self.name_builder.build(Services.GLUE_CONNECTION, config.connection_name)
+        
+        # Create construct ID based on the connection name
+        construct_id = f"GlueConnection{config.connection_name.replace('-', '').replace('_', '').title()}"
+        
+        # Import existing VPC resources with generic construct IDs
+        subnet = ec2.Subnet.from_subnet_attributes(
+            self.stack, f"{construct_id}Subnet",
+            subnet_id=config.subnet_id,
+            availability_zone=config.availability_zone or "us-east-2a"
+        )
+        
+        security_group = ec2.SecurityGroup.from_security_group_id(
+            self.stack, f"{construct_id}SG",
+            security_group_id=config.security_group_id
+        )
+        
+        # Create the Glue connection
+        connection = glue.Connection(
+            self.stack, construct_id,
+            connection_name=connection_name,
+            type=glue.ConnectionType.NETWORK,
+            description=config.description or f"VPC connection for {config.connection_name}",
+            subnet=subnet,
+            security_groups=[security_group]
+        )
+        
+        self.tag_resource(connection, connection_name, "AWS Glue", config.tags)
+        return connection
+        
+    def build_glue_role(self, config: GlueRoleConfig) -> iam.Role:
+        """Create a new IAM role for Glue jobs with minimum required permissions"""
+        role_name = self.name_builder.build(Services.IAM_ROLE, config.role_name)
+        
+        # Start with base role configuration
+        role = iam.Role(
+            self.stack, role_name,
+            role_name=role_name,
+            assumed_by=config.assumed_by,
+            managed_policies=config.managed_policies,
+            inline_policies=config.inline_policies,
+            description=config.description or f"Role for {config.role_name} Glue jobs"
+        )
+        
+        # Add additional policies based on resource ARNs
+        if config.additional_policies and config.resource_arns:
+            policy_statements = []
+            
+            # Create policy statements for each resource type
+            for resource_type, arns in config.resource_arns.items():
+                if resource_type == 's3' and any(p for p in config.additional_policies 
+                                               if p in PolicyUtils.S3_FULL):
+                    # Filter S3 permissions
+                    s3_permissions = [p for p in config.additional_policies 
+                                     if p in PolicyUtils.S3_FULL]
+                    if s3_permissions:
+                        policy_statements.append(
+                            iam.PolicyStatement(
+                                effect=iam.Effect.ALLOW,
+                                actions=s3_permissions,
+                                resources=arns
+                            )
+                        )
+                
+                elif resource_type == 'dynamodb' and any(p for p in config.additional_policies 
+                                                       if p in PolicyUtils.DYNAMODB_FULL):
+                    # Filter DynamoDB permissions
+                    dynamodb_permissions = [p for p in config.additional_policies 
+                                         if p in PolicyUtils.DYNAMODB_FULL]
+                    if dynamodb_permissions:
+                        policy_statements.append(
+                            iam.PolicyStatement(
+                                effect=iam.Effect.ALLOW,
+                                actions=dynamodb_permissions,
+                                resources=arns
+                            )
+                        )
+                
+                elif resource_type == 'sns' and any(p for p in config.additional_policies 
+                                                  if p in PolicyUtils.SNS_FULL):
+                    # Filter SNS permissions
+                    sns_permissions = [p for p in config.additional_policies 
+                                     if p in PolicyUtils.SNS_FULL]
+                    if sns_permissions:
+                        policy_statements.append(
+                            iam.PolicyStatement(
+                                effect=iam.Effect.ALLOW,
+                                actions=sns_permissions,
+                                resources=arns
+                            )
+                        )
+                        
+                elif resource_type == 'glue' and any(p for p in config.additional_policies 
+                                                   if p in (PolicyUtils.GLUE_CATALOG_FULL + PolicyUtils.GLUE_CRAWLER_EXECUTE + PolicyUtils.GLUE_JOB_EXECUTE)):
+                    # Filter Glue catalog permissions
+                    glue_permissions = [p for p in config.additional_policies 
+                                      if p in (PolicyUtils.GLUE_CATALOG_FULL + PolicyUtils.GLUE_CRAWLER_EXECUTE + PolicyUtils.GLUE_JOB_EXECUTE)]
+                    if glue_permissions:
+                        policy_statements.append(
+                            iam.PolicyStatement(
+                                effect=iam.Effect.ALLOW,
+                                actions=glue_permissions,
+                                resources=arns
+                            )
+                        )
+                        
+                elif resource_type == 'lakeformation' and any(p for p in config.additional_policies 
+                                                            if p in PolicyUtils.LAKE_FORMATION_FULL):
+                    # Filter Lake Formation permissions (includes access, tag admin, and full permissions)
+                    lf_permissions = [p for p in config.additional_policies 
+                                    if p in PolicyUtils.LAKE_FORMATION_FULL]
+                    if lf_permissions:
+                        policy_statements.append(
+                            iam.PolicyStatement(
+                                effect=iam.Effect.ALLOW,
+                                actions=lf_permissions,
+                                resources=arns
+                            )
+                        )
+
+                elif resource_type == 'secret' and any(p for p in config.additional_policies 
+                                                       if p in PolicyUtils.SECRET_MANAGER_READ):
+                    # Filter Secrets Manager permissions
+                    secret_permissions = [p for p in config.additional_policies 
+                                    if p in PolicyUtils.SECRET_MANAGER_READ]
+                    #When AWs creates a Secret Manager Resource it adds six random digits at the end of the ARN
+                    arns_random_code = []
+                    for arn in arns:
+                        arns_random_code.append(arn + '-*')
+
+                    if secret_permissions:
+                        policy_statements.append(
+                            iam.PolicyStatement(
+                                effect=iam.Effect.ALLOW,
+                                actions=secret_permissions,
+                                resources=arns_random_code
+                            )
+                        )
+                        
+                elif resource_type == 'iam' and any(p for p in config.additional_policies 
+                                                   if p in (PolicyUtils.IAM_PASS_ROLE + PolicyUtils.IAM_GET_ROLE + PolicyUtils.IAM_ROLE_MANAGEMENT)):
+                    # Filter IAM permissions
+                    iam_permissions = [p for p in config.additional_policies 
+                                     if p in (PolicyUtils.IAM_PASS_ROLE + PolicyUtils.IAM_GET_ROLE + PolicyUtils.IAM_ROLE_MANAGEMENT)]
+                    if iam_permissions:
+                        policy_statements.append(
+                            iam.PolicyStatement(
+                                effect=iam.Effect.ALLOW,
+                                actions=iam_permissions,
+                                resources=arns
+                            )
+                        )
+            
+            # Add the inline policy if we have statements
+            if policy_statements:
+                # We don't need to add a policy with "*" resource, just add individual statements
+                # with properly scoped resources
+                
+                # Add each refined statement
+                for statement in policy_statements:
+                    role.add_to_policy(statement)
+        
+        # Apply tags if provided
+        if config.tags:
+            for key, value in config.tags.items():
+                if value:  # Only add non-empty tags
+                    Tags.of(role).add(key, value)
+                    
+        # Apply standard tags
+        self.tag_resource(role, role_name, "AWS IAM Role")
+        
+        return role
+        
     ##################################################################
      
     def import_api_gateway(self, config: ApiGatewayConfig) -> apigw.RestApi:
@@ -357,4 +700,3 @@ class ResourceBuilder:
         
         self.tag_resource(endpoint, endpoint_name, "AWS DMS")
         return endpoint
-    

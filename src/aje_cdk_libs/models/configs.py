@@ -32,6 +32,7 @@ class LambdaConfig:
     log_retention: Optional[logs.RetentionDays] = logs.RetentionDays.ONE_WEEK
     removal_policy: Optional[RemovalPolicy] = RemovalPolicy.DESTROY
     role: Optional[iam.Role] = None
+    tags: Optional[Dict[str, str]] = None
 
 @dataclass
 class LambdaDockerConfig:
@@ -90,7 +91,7 @@ class S3Config:
     bucket_name: str
     versioned: bool = False
     removal_policy: Optional[RemovalPolicy] = None
-    block_public_access: Optional[s3.BlockPublicAccess]= s3.BlockPublicAccess.BLOCK_ALL   
+    block_public_access: Optional[s3.BlockPublicAccess]= None   
 
 @dataclass
 class SNSTopicConfig:
@@ -122,10 +123,12 @@ class GlueJobConfig:
     default_arguments: Optional[Dict[str, str]] = None
     worker_type: Optional[glue.WorkerType] = None
     worker_count: Optional[int] = None
+    max_capacity: Optional[float] = None  # For PythonShell jobs only
     continuous_logging: Optional[glue.ContinuousLoggingProps] = None
     timeout: Optional[Duration] = None
     max_concurrent_runs: Optional[int] = None
     role: Optional[iam.Role] = None
+    tags: Optional[Dict[str, str]] = None
 
 #@dataclass
 #class GlueJobPythonShellConfig:
@@ -153,6 +156,8 @@ class StepFunctionConfig:
     definition_body: Optional[sf.DefinitionBody] = None
     role: Optional[iam.Role] = None
     timeout: Optional[Duration] = Duration.hours(1)
+    disable_auto_permissions: bool = False  # New flag to prevent auto-permission grants
+    tags: Optional[Dict[str, str]] = None
 
 @dataclass
 class RoleConfig:
@@ -208,6 +213,42 @@ class DMSEndpointConfig:
     kms_settings: Dict[str, str]
     tags: Optional[Dict[str, str]] = None
 
-
-
+@dataclass
+class GlueRoleConfig:
+    """Base configuration for Glue role creation with minimum permissions"""
+    role_name: str
+    assumed_by: iam.IPrincipal = field(default_factory=lambda: iam.ServicePrincipal("glue.amazonaws.com"))
+    managed_policies: List[iam.IManagedPolicy] = field(default_factory=lambda: [
+        iam.ManagedPolicy.from_aws_managed_policy_name('service-role/AWSGlueServiceRole')
+    ])
+    additional_policies: Optional[List[str]] = None
+    resource_arns: Optional[Dict[str, List[str]]] = None
+    inline_policies: Optional[Dict[str, iam.PolicyDocument]] = None
+    description: Optional[str] = None
+    tags: Optional[Dict[str, str]] = None
     
+@dataclass
+class StepFunctionRoleConfig:
+    """Configuration for Step Function role creation with minimum permissions"""
+    role_name: str
+    assumed_by: iam.IPrincipal = field(default_factory=lambda: iam.ServicePrincipal("states.amazonaws.com"))
+    managed_policies: Optional[List[iam.IManagedPolicy]] = None
+    additional_policies: Optional[List[str]] = None
+    resource_arns: Optional[Dict[str, List[str]]] = None
+    inline_policies: Optional[Dict[str, iam.PolicyDocument]] = None
+    description: Optional[str] = None
+    tags: Optional[Dict[str, str]] = None
+
+@dataclass
+class GlueConnectionConfig:
+    """Configuration for Glue VPC connection creation"""
+    connection_name: str
+    vpc_id: str
+    subnet_id: str
+    security_group_id: str
+    availability_zone: str = 'us-east-2a'
+    description: Optional[str] = None
+    tags: Optional[Dict[str, str]] = None
+
+
+
