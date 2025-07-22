@@ -130,6 +130,15 @@ class GlueJobConfig:
     role: Optional[iam.Role] = None
     tags: Optional[Dict[str, str]] = None
 
+@dataclass
+class GlueDatabaseConfig:
+    """Configuration for Glue database creation"""
+    name: str
+    catalog_id: str
+    description: str
+    location_uri: str
+    parameters: Dict[str, str]= None
+
 #@dataclass
 #class GlueJobPythonShellConfig:
 #    """Configuration for Glue job creation with Python shell"""
