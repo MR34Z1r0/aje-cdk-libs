@@ -3,6 +3,7 @@ from aws_cdk import (
     aws_iam as iam,
     aws_s3 as s3,
     aws_secretsmanager as secretsmanager,
+    aws_glue as gluedb,
     aws_glue_alpha as glue,
     aws_dynamodb as dynamodb,
     aws_dms as dms,
@@ -190,6 +191,25 @@ class ResourceBuilder:
             self.stack, topic_name, f"arn:aws:sns:{self.stack.region}:{self.stack.account}:{topic_name}"
         )   
     
+    def build_glue_database(self, config: GlueDatabaseConfig) -> gluedb.CfnDatabase:
+        """Create a Glue database with standard configuration"""
+        glue_database_name = self.name_builder.build(Services.GLUE_DATABASE, config.name)
+
+        database = gluedb.CfnDatabase(
+            self.stack,
+            id=config.name,
+            catalog_id=config.catalog_id,
+            database_input=gluedb.CfnDatabase.DatabaseInputProperty(
+                name=glue_database_name,
+                description=config.description,
+                location_uri=config.location_uri,
+                parameters=config.parameters or {}
+            )
+        )
+
+        self.tag_resource(database, glue_database_name, "AWS Glue Database")
+        return database
+
     def build_glue_job(self, config: GlueJobConfig) -> glue.Job:
         """Create a Glue ETL job with standard configuration"""
         job_name = self.name_builder.build(Services.GLUE_JOB, config.job_name)
