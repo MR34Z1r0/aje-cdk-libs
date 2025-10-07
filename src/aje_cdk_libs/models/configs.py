@@ -15,7 +15,10 @@ from aws_cdk import (
     aws_logs as logs,
     aws_sqs as sqs,
     aws_glue_alpha as glue,
-    aws_s3_deployment as s3_deployment
+    aws_s3_deployment as s3_deployment,
+    aws_scheduler as scheduler,
+    aws_appflow as appflow,
+    aws_events as events
 )
     
 @dataclass
@@ -115,6 +118,7 @@ class S3DeploymentConfig:
     prune: bool = False
 
 @dataclass
+@dataclass
 class GlueJobConfig:
     """Configuration for Glue job creation"""
     job_name: str
@@ -129,15 +133,6 @@ class GlueJobConfig:
     max_concurrent_runs: Optional[int] = None
     role: Optional[iam.Role] = None
     tags: Optional[Dict[str, str]] = None
-
-@dataclass
-class GlueDatabaseConfig:
-    """Configuration for Glue database creation"""
-    name: str
-    catalog_id: str
-    description: str
-    location_uri: str
-    parameters: Dict[str, str]= None
 
 #@dataclass
 #class GlueJobPythonShellConfig:
@@ -259,5 +254,59 @@ class GlueConnectionConfig:
     description: Optional[str] = None
     tags: Optional[Dict[str, str]] = None
 
+@dataclass
+class GlueJdbcConnectionConfig:
+    """Configuration for Glue JDBC connection creation"""
+    connection_name: str
+    jdbc_url: str
+    username: str
+    password: str
+    subnet_id: str
+    security_group_id: str
+    availability_zone: str = 'us-east-2a'
+    description: Optional[str] = None
+    tags: Optional[Dict[str, str]] = None
+
+@dataclass
+class EventBridgeSchedulerConfig:
+    """Configuration for EventBridge Scheduler creation"""
+    schedule_name: str
+    schedule_expression: str  # Cron or rate expression
+    target_arn: str  # ARN of the target (Step Function, Lambda, etc.)
+    target_role_arn: str  # IAM role ARN for the scheduler to assume
+    description: Optional[str] = None
+    flexible_time_window_mode: str = "OFF"  # OFF or FLEXIBLE
+    flexible_time_window_maximum_window_in_minutes: Optional[int] = None
+    group_name: Optional[str] = "default"
+    target_input: Optional[str] = None  # JSON string input for the target
+    target_retry_policy_maximum_retry_attempts: Optional[int] = 3
+    target_retry_policy_maximum_event_age_in_seconds: Optional[int] = 86400  # 24 hours
+    state: str = "ENABLED"  # ENABLED or DISABLED
+    timezone: str = "UTC"
+    tags: Optional[Dict[str, str]] = None
+
+@dataclass
+class AppflowConfig:
+    """Configuration for Appflow creation"""
+    flow_name: str
+    source_flow_config: appflow.CfnFlow.SourceFlowConfigProperty
+    destination_flow_config_list: List[appflow.CfnFlow.DestinationFlowConfigProperty]
+    tasks: List[appflow.CfnFlow.TaskProperty]
+    trigger_config: appflow.CfnFlow.TriggerConfigProperty
+    flow_status: str = "Active"
+    description: Optional[str] = None
+    tags: Optional[Dict[str, str]] = None
 
 
+@dataclass
+class EventBridgeRuleConfig:
+    """Configuration for EventBridge Rule creation"""
+    rule_name: str
+    event_pattern: Dict[str, List[str]]
+    targets: List[events.CfnRule.TargetProperty]
+    description: Optional[str] = None
+    event_bus_name: Optional[str] = None
+    schedule_expression: Optional[str] = None
+    state: str = "ENABLED"
+    role_arn: Optional[str] = None
+    tags: Optional[Dict[str, str]] = None

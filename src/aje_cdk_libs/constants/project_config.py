@@ -29,6 +29,16 @@ class ProjectConfig:
             if not aws_environment:
                 raise ValueError(f"Invalid environment: {environment}")
             
+            # Get the environment-specific app_config
+            env_app_config = config.get("app_config", {}).get(environment.lower(), {})
+            
+            # Add any additional keys from the root config that aren't standard ProjectConfig fields
+            standard_fields = {"account_id", "region_name", "enterprise", "project_name", "environment", "author", "separator", "app_config"}
+            additional_config = {k: v for k, v in config.items() if k not in standard_fields}
+            
+            # Merge environment-specific config with additional config
+            final_app_config = {**env_app_config, **additional_config}
+            
             return cls(
                 account_id=config.get("account_id"),
                 region_name=config.get("region_name"),
@@ -37,7 +47,7 @@ class ProjectConfig:
                 environment=aws_environment,
                 author=config.get("author"),
                 separator=config.get("separator"),
-                app_config=config.get("app_config")[environment.lower()] if "app_config" in config and environment.lower() in config["app_config"] else {}
+                app_config=final_app_config
             )
         except KeyError as e:
             raise ValueError(f"Missing required config key: {e}")

@@ -18,8 +18,11 @@ class Services(Enum):
     DYNAMODB_TABLE = 'ddb'
     SECRET = 'sm'
     EVENT_BRIDGE = 'eb'
+    EVENT_BRIDGE_SCHEDULER = 'sch'
     API_GATEWAY = 'api'
     SQS = 'sqs'
+    APPFLOW = 'flow'
+    EVENT_BRIDGE_RULE = 'rule'
 
 class DMSEndpointType(Enum):
     """DMS Endpoint type identifiers"""

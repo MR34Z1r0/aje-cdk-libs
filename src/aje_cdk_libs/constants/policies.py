@@ -11,6 +11,11 @@ class PolicyUtils:
     
     # Generic permission sets for different AWS services
     
+    # Step Function permissions
+    STEP_FUNCTIONS_START_EXECUTION = [
+        "states:StartExecution"
+    ]
+
     # S3 permissions
     S3_READ = [   
         "s3:ListBucket",
@@ -109,7 +114,11 @@ class PolicyUtils:
         "glue:GetJobRuns",
         "glue:BatchStopJobRun"
     ]
-    
+
+    GLUE_START_JOB = [
+        "glue:StartJobRun",
+    ]
+
     # Glue crawler permissions
     GLUE_CRAWLER_EXECUTE = [
         "glue:StartCrawler",

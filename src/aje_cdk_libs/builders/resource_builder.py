@@ -3,7 +3,6 @@ from aws_cdk import (
     aws_iam as iam,
     aws_s3 as s3,
     aws_secretsmanager as secretsmanager,
-    aws_glue as gluedb,
     aws_glue_alpha as glue,
     aws_dynamodb as dynamodb,
     aws_dms as dms,
@@ -12,7 +11,8 @@ from aws_cdk import (
     aws_sns as sns,
     aws_apigateway as apigw,
     aws_sqs as sqs,
-    aws_s3_deployment as s3_deployment
+    aws_s3_deployment as s3_deployment,
+    aws_scheduler as scheduler
 )
 from ..constants.services import Services
 from ..constants.policies import PolicyUtils
@@ -101,7 +101,10 @@ class ResourceBuilder:
         if additional_tags:
             for key, value in additional_tags.items():
                 if value:  # Only add tags with non-empty values
-                    Tags.of(resource).add(key, value)
+                    # Ensure enum values are converted to strings
+                    if hasattr(value, 'value'):
+                        value = value.value
+                    Tags.of(resource).add(key, str(value))
     
     def import_secret(self, secret_name: str) -> secretsmanager.Secret:
         """Import an existing secret"""
@@ -206,25 +209,6 @@ class ResourceBuilder:
             self.stack, topic_name, f"arn:aws:sns:{self.stack.region}:{self.stack.account}:{topic_name}"
         )   
     
-    def build_glue_database(self, config: GlueDatabaseConfig) -> gluedb.CfnDatabase:
-        """Create a Glue database with standard configuration"""
-        glue_database_name = self.name_builder.build(Services.GLUE_DATABASE, config.name)
-
-        database = gluedb.CfnDatabase(
-            self.stack,
-            id=config.name,
-            catalog_id=config.catalog_id,
-            database_input=gluedb.CfnDatabase.DatabaseInputProperty(
-                name=glue_database_name,
-                description=config.description,
-                location_uri=config.location_uri,
-                parameters=config.parameters or {}
-            )
-        )
-
-        self.tag_resource(database, glue_database_name, "AWS Glue Database")
-        return database
-
     def build_glue_job(self, config: GlueJobConfig) -> glue.Job:
         """Create a Glue ETL job with standard configuration"""
         job_name = self.name_builder.build(Services.GLUE_JOB, config.job_name)
@@ -507,6 +491,45 @@ class ResourceBuilder:
         self.tag_resource(connection, connection_name, "AWS Glue", config.tags)
         return connection
         
+    def build_glue_jdbc_connection(self, config: GlueJdbcConnectionConfig) -> glue.Connection:
+        """Create a Glue JDBC connection with standard configuration"""
+        from aws_cdk import aws_ec2 as ec2
+        
+        connection_name = self.name_builder.build(Services.GLUE_CONNECTION, config.connection_name)
+        
+        # Create construct ID based on the connection name
+        construct_id = f"GlueJdbcConnection{config.connection_name.replace('-', '').replace('_', '').title()}"
+        
+        # Import existing VPC resources with generic construct IDs
+        subnet = ec2.Subnet.from_subnet_attributes(
+            self.stack, f"{construct_id}Subnet",
+            subnet_id=config.subnet_id,
+            availability_zone=config.availability_zone or "us-east-2a"
+        )
+        
+        security_group = ec2.SecurityGroup.from_security_group_id(
+            self.stack, f"{construct_id}SG",
+            security_group_id=config.security_group_id
+        )
+        
+        # Create the Glue JDBC connection
+        connection = glue.Connection(
+            self.stack, construct_id,
+            connection_name=connection_name,
+            type=glue.ConnectionType.JDBC,
+            description=config.description or f"JDBC connection for {config.connection_name}",
+            subnet=subnet,
+            security_groups=[security_group],
+            properties={
+                "JDBC_CONNECTION_URL": config.jdbc_url,
+                "USERNAME": config.username,
+                "PASSWORD": config.password
+            }
+        )
+        
+        self.tag_resource(connection, connection_name, "AWS Glue", config.tags)
+        return connection
+        
     def build_glue_role(self, config: GlueRoleConfig) -> iam.Role:
         """Create a new IAM role for Glue jobs with minimum required permissions"""
         role_name = self.name_builder.build(Services.IAM_ROLE, config.role_name)
@@ -602,17 +625,13 @@ class ResourceBuilder:
                     # Filter Secrets Manager permissions
                     secret_permissions = [p for p in config.additional_policies 
                                     if p in PolicyUtils.SECRET_MANAGER_READ]
-                    #When AWs creates a Secret Manager Resource it adds six random digits at the end of the ARN
-                    arns_random_code = []
-                    for arn in arns:
-                        arns_random_code.append(arn + '-*')
-
+                    
                     if secret_permissions:
                         policy_statements.append(
                             iam.PolicyStatement(
                                 effect=iam.Effect.ALLOW,
                                 actions=secret_permissions,
-                                resources=arns_random_code
+                                resources=arns
                             )
                         )
                         
@@ -720,3 +739,97 @@ class ResourceBuilder:
         
         self.tag_resource(endpoint, endpoint_name, "AWS DMS")
         return endpoint
+
+    def build_eventbridge_scheduler(self, config: EventBridgeSchedulerConfig) -> scheduler.CfnSchedule:
+        """Create an EventBridge Scheduler with standardized configuration"""
+        schedule_name = self.name_builder.build(Services.EVENT_BRIDGE_SCHEDULER, config.schedule_name)
+        
+        # Build the target configuration
+        target_config = scheduler.CfnSchedule.TargetProperty(
+            arn=config.target_arn,
+            role_arn=config.target_role_arn,
+            input=config.target_input,
+            retry_policy=scheduler.CfnSchedule.RetryPolicyProperty(
+                maximum_retry_attempts=config.target_retry_policy_maximum_retry_attempts,
+                maximum_event_age_in_seconds=config.target_retry_policy_maximum_event_age_in_seconds
+            )
+        )
+        
+        # Build flexible time window configuration
+        if config.flexible_time_window_mode == "FLEXIBLE":
+            flexible_time_window = scheduler.CfnSchedule.FlexibleTimeWindowProperty(
+                mode=config.flexible_time_window_mode,
+                maximum_window_in_minutes=config.flexible_time_window_maximum_window_in_minutes or 15
+            )
+        else:
+            flexible_time_window = scheduler.CfnSchedule.FlexibleTimeWindowProperty(
+                mode="OFF"
+            )
+        
+        schedule = scheduler.CfnSchedule(
+            self.stack, schedule_name,
+            name=schedule_name,
+            schedule_expression=config.schedule_expression,
+            schedule_expression_timezone=config.timezone,
+            target=target_config,
+            flexible_time_window=flexible_time_window,
+            description=config.description,
+            group_name=config.group_name,
+            state=config.state
+        )
+        
+        # Apply tags if provided
+        if config.tags:
+            for key, value in config.tags.items():
+                if value:  # Only add non-empty tags
+                    Tags.of(schedule).add(key, value)
+        
+        self.tag_resource(schedule, schedule_name, "AWS EventBridge Scheduler")
+        return schedule
+
+    def build_appflow_flow(self, config: AppflowConfig) -> appflow.CfnFlow:
+        """Create an Appflow flow with standardized configuration"""
+        flow_name = self.name_builder.build(Services.APPFLOW, config.flow_name)
+        
+        flow = appflow.CfnFlow(
+            self.stack, flow_name,
+            flow_name=flow_name,
+            source_flow_config=config.source_flow_config,
+            destination_flow_config_list=config.destination_flow_config_list,
+            tasks=config.tasks,
+            trigger_config=config.trigger_config,
+            description=config.description,
+            flow_status=config.flow_status,
+        )
+
+        if config.tags:
+            for key, value in config.tags.items():
+                if value:  # Only add non-empty tags
+                    Tags.of(flow).add(key, value)
+        
+        self.tag_resource(flow, flow_name, "AWS AppFlow")
+        return flow
+    
+    def build_eventbridge_rule(self, config: EventBridgeRuleConfig) -> events.Rule:
+        """Create an EventBridge rule with standardized configuration"""
+        rule_name = self.name_builder.build(Services.EVENT_BRIDGE_RULE, config.rule_name)
+        
+        rule = events.CfnRule(
+            self.stack, rule_name,
+            name=rule_name,
+            description=config.description,
+            event_pattern=config.event_pattern,
+            targets=config.targets,
+            state=config.state,
+            role_arn=config.role_arn,
+            event_bus_name=config.event_bus_name,
+            schedule_expression=config.schedule_expression
+        )
+
+        if config.tags:
+            for key, value in config.tags.items():
+                if value:  # Only add non-empty tags
+                    Tags.of(rule).add(key, value)
+        
+        self.tag_resource(rule, rule_name, "AWS EventBridge Rule")
+        return rule
