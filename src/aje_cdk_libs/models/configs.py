@@ -302,11 +302,45 @@ class AppflowConfig:
 class EventBridgeRuleConfig:
     """Configuration for EventBridge Rule creation"""
     rule_name: str
-    event_pattern: Dict[str, List[str]]
-    targets: List[events.CfnRule.TargetProperty]
     description: Optional[str] = None
-    event_bus_name: Optional[str] = None
+    event_pattern: Dict[str, List[str]] = None
     schedule_expression: Optional[str] = None
+    targets: List[events.CfnRule.TargetProperty] = None
+    event_bus_name: Optional[str] = None
     state: str = "ENABLED"
     role_arn: Optional[str] = None
     tags: Optional[Dict[str, str]] = None
+    enabled: bool = True
+    event_bus_name: Optional[str] = None
+    tags: Optional[Dict[str, str]] = None
+
+@dataclass
+class EventBridgeTargetConfig:
+    """Configuration for EventBridge Rule targets"""
+    # Lambda target
+    lambda_function: Optional[_lambda.IFunction] = None
+    
+    # Step Function target
+    state_machine: Optional[sf.IStateMachine] = None
+    state_machine_role: Optional[iam.IRole] = None
+    
+    # SQS target
+    sqs_queue: Optional[sqs.IQueue] = None
+    
+    # SNS target
+    sns_topic: Optional[sns.ITopic] = None
+    
+    # Generic ARN target (for custom cases)
+    arn: Optional[str] = None
+    
+    # Common target properties
+    retry_attempts: int = 2
+    max_event_age: Duration = Duration.hours(2)
+    dead_letter_queue: Optional[sqs.IQueue] = None
+    
+    # Input transformation
+    input_transformer: Optional[events.RuleTargetInput] = None
+    input_path: Optional[str] = None
+    
+    # Target-specific settings
+    message_group_id: Optional[str] = None  # For FIFO SQS

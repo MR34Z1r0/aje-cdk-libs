@@ -12,7 +12,9 @@ from aws_cdk import (
     aws_apigateway as apigw,
     aws_sqs as sqs,
     aws_s3_deployment as s3_deployment,
-    aws_scheduler as scheduler
+    aws_scheduler as scheduler,
+    aws_events as events,
+    aws_events_targets as targets
 )
 from ..constants.services import Services
 from ..constants.policies import PolicyUtils
@@ -811,25 +813,160 @@ class ResourceBuilder:
         return flow
     
     def build_eventbridge_rule(self, config: EventBridgeRuleConfig) -> events.Rule:
-        """Create an EventBridge rule with standardized configuration"""
+        """
+        Create an EventBridge rule with configurable targets
+        
+        Supports multiple target types:
+        - Lambda functions
+        - Step Functions
+        - SQS queues
+        - SNS topics
+        - Custom ARN targets
+        
+        Example:
+            config = EventBridgeRuleConfig(
+                rule_name="multi-target-rule",
+                event_pattern=events.EventPattern(
+                    source=["aws.s3"],
+                    detail_type=["Object Created"]
+                ),
+                targets=[
+                    EventBridgeTargetConfig(
+                        lambda_function=my_lambda,
+                        retry_attempts=3
+                    ),
+                    EventBridgeTargetConfig(
+                        sqs_queue=my_queue
+                    )
+                ]
+            )
+        """
         rule_name = self.name_builder.build(Services.EVENT_BRIDGE_RULE, config.rule_name)
         
-        rule = events.CfnRule(
-            self.stack, rule_name,
-            name=rule_name,
-            description=config.description,
-            event_pattern=config.event_pattern,
-            targets=config.targets,
-            state=config.state,
-            role_arn=config.role_arn,
-            event_bus_name=config.event_bus_name,
-            schedule_expression=config.schedule_expression
-        )
-
-        if config.tags:
-            for key, value in config.tags.items():
-                if value:  # Only add non-empty tags
-                    Tags.of(rule).add(key, value)
+        # Handle event_pattern (can be dict or EventPattern object)
+        if isinstance(config.event_pattern, dict):
+            event_pattern_obj = events.EventPattern(**config.event_pattern)
+        else:
+            event_pattern_obj = config.event_pattern
         
-        self.tag_resource(rule, rule_name, "AWS EventBridge Rule")
+        # Create the rule
+        rule = events.Rule(
+            self.stack, rule_name,
+            rule_name=rule_name,
+            description=config.description,
+            event_pattern=event_pattern_obj,
+            schedule=events.Schedule.expression(config.schedule_expression) if config.schedule_expression else None,
+            enabled=config.enabled,
+            event_bus=events.EventBus.from_event_bus_name(
+                self.stack, 
+                f"{rule_name}-bus",
+                config.event_bus_name
+            ) if config.event_bus_name else None
+        )
+        
+        # Add targets
+        for idx, target_config in enumerate(config.targets):
+            self._add_target_to_rule(rule, target_config, idx)
+        
+        # Apply tags
+        self.tag_resource(rule, rule_name, "AWS EventBridge Rule", config.tags)
+        
         return rule
+    
+    def _add_target_to_rule(
+        self, 
+        rule: events.Rule, 
+        target_config: EventBridgeTargetConfig,
+        index: int
+    ) -> None:
+        """Internal method to add a target to an EventBridge rule"""
+        
+        # Common target properties
+        common_props = {
+            "retry_attempts": target_config.retry_attempts,
+            "max_event_age": target_config.max_event_age,
+        }
+        
+        if target_config.dead_letter_queue:
+            common_props["dead_letter_queue"] = target_config.dead_letter_queue
+        
+        # Lambda target
+        if target_config.lambda_function:
+            rule.add_target(
+                targets.LambdaFunction(
+                    target_config.lambda_function,
+                    event=target_config.input_transformer,
+                    **common_props
+                )
+            )
+        
+        # Step Function target
+        elif target_config.state_machine:
+            sf_target_props = {
+                "input": target_config.input_transformer,
+                **common_props
+            }
+            
+            if target_config.state_machine_role:
+                sf_target_props["role"] = target_config.state_machine_role
+            
+            rule.add_target(
+                targets.SfnStateMachine(
+                    target_config.state_machine,
+                    **sf_target_props
+                )
+            )
+        
+        # SQS target
+        elif target_config.sqs_queue:
+            sqs_props = {**common_props}
+            
+            if target_config.message_group_id:
+                sqs_props["message_group_id"] = target_config.message_group_id
+            
+            if target_config.input_transformer:
+                sqs_props["message"] = target_config.input_transformer
+            
+            rule.add_target(
+                targets.SqsQueue(
+                    target_config.sqs_queue,
+                    **sqs_props
+                )
+            )
+        
+        # SNS target
+        elif target_config.sns_topic:
+            sns_props = {**common_props}
+            
+            if target_config.input_transformer:
+                sns_props["message"] = target_config.input_transformer
+            
+            rule.add_target(
+                targets.SnsTopic(
+                    target_config.sns_topic,
+                    **sns_props
+                )
+            )
+        
+        # Generic ARN target
+        elif target_config.arn:
+            # For custom targets not covered by CDK constructs
+            from aws_cdk.aws_events import CfnRule
+            
+            cfn_rule = rule.node.default_child
+            if isinstance(cfn_rule, CfnRule):
+                target_property = CfnRule.TargetProperty(
+                    arn=target_config.arn,
+                    id=f"Target{index}",
+                    retry_policy=CfnRule.RetryPolicyProperty(
+                        maximum_retry_attempts=target_config.retry_attempts,
+                        maximum_event_age_in_seconds=target_config.max_event_age.to_seconds()
+                    ) if target_config.retry_attempts > 0 else None,
+                    dead_letter_config=CfnRule.DeadLetterConfigProperty(
+                        arn=target_config.dead_letter_queue.queue_arn
+                    ) if target_config.dead_letter_queue else None
+                )
+                
+                # Add to existing targets
+                existing_targets = cfn_rule.targets or []
+                cfn_rule.targets = existing_targets + [target_property]
